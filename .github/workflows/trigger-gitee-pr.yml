@@ -1,39 +1,28 @@
 name: 定时同步触发Gitee流水线
 on:
   schedule:
-    # 定时规则：每天UTC时间10:00（对应北京时间18:00）运行，可修改cron表达式
-    - cron: '0 10 * * *'
-  workflow_dispatch:  # 允许手动触发，方便测试
+    - cron: '0 10 * * *'  # UTC时间10点（北京时间18点）
+  workflow_dispatch:
 
 jobs:
   trigger-gitee-pipeline:
     runs-on: ubuntu-latest
     steps:
-      # 步骤1：检出GitHub当前仓库（若需使用本地脚本可保留，此处主要用于执行git命令）
       - name: Checkout GitHub Repo
         uses: actions/checkout@v4
-
-      # 步骤2：配置Git环境（用于连接Gitee仓库）
       - name: Configure Git
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-
-      # 步骤3：克隆Gitee目标仓库并推送更新
       - name: Sync to Gitee & Trigger Pipeline
         env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}  # 已配置的Gitee Token
-          GITEE_REPO: "https://gitee.com/bmg369/test.git"  # Gitee仓库地址
-          GITEE_BRANCH: "master"  # Gitee目标分支（需与流水线触发分支一致）
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}  # 需在GitHub仓库设置中配置
+          GITEE_REPO: "https://gitee.com/bmg369/test.git"
+          GITEE_BRANCH: "master"
         run: |
-          # 克隆Gitee仓库（使用Token免密登录）
           git clone --depth 1 -b $GITEE_BRANCH https://oauth2:${GITEE_TOKEN}@${GITEE_REPO#https://}
           cd test
-
-          # 生成微小更新（修改时间戳文件，避免无变更无法推送）
           echo "Last sync at: $(date +'%Y-%m-%d %H:%M:%S')" > .sync-timestamp
-          
-          # 提交并推送更新（触发Gitee流水线）
           git add .sync-timestamp
           git commit -m "Auto sync from GitHub Actions (trigger pipeline)"
           git push origin $GITEE_BRANCH
