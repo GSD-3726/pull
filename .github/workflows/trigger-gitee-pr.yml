@@ -1,0 +1,63 @@
+name: Trigger Gitee PR (create branch -> push -> create PR)
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'    # 每 2 小时触发一次；按需修改
+  workflow_dispatch:        # 支持手动触发
+
+env:
+  GITEE_USER: bmg369
+  GITEE_REPO: test
+  GITEE_BASE_BRANCH: main
+
+jobs:
+  create_pr_on_gitee:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this GitHub repo
+        uses: actions/checkout@v4
+
+      - name: Setup git user
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Make a tiny trigger commit
+        id: make_commit
+        run: |
+          mkdir -p .github/trigger
+          echo "triggered-at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > .github/trigger/trigger.txt
+          git add .github/trigger/trigger.txt
+          git commit -m "Trigger Gitee run: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "no changes to commit"
+
+      - name: Create branch name
+        id: create_branch
+        run: |
+          BRANCH="gh-trigger-$(date -u +%Y%m%d%H%M%S)"
+          echo "BRANCH=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Push branch to Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USER: ${{ env.GITEE_USER }}
+          GITEE_REPO: ${{ env.GITEE_REPO }}
+        run: |
+          BRANCH=${{ steps.create_branch.outputs.BRANCH }}
+          git branch -f $BRANCH HEAD
+          git remote add gitee https://${GITEE_USER}:${GITEE_TOKEN}@gitee.com/${GITEE_USER}/${GITEE_REPO}.git
+          git push -u gitee $BRANCH:$BRANCH --force
+
+      - name: Create Pull Request on Gitee (API)
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USER: ${{ env.GITEE_USER }}
+          GITEE_REPO: ${{ env.GITEE_REPO }}
+          GITEE_BASE_BRANCH: ${{ env.GITEE_BASE_BRANCH }}
+        run: |
+          BRANCH=${{ steps.create_branch.outputs.BRANCH }}
+          TITLE="Trigger from GitHub: ${BRANCH}"
+          BODY="Auto-created PR from GitHub Actions to trigger Gitee pipeline. Branch: ${BRANCH}"
+          JSON=$(printf '{"title":"%s","head":"%s","base":"%s","body":"%s"}' "$TITLE" "$BRANCH" "$GITEE_BASE_BRANCH" "$BODY")
+          curl -s -X POST "https://gitee.com/api/v5/repos/${GITEE_USER}/${GITEE_REPO}/pulls?access_token=${GITEE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$JSON" | jq .
