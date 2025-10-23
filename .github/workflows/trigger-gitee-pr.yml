@@ -14,11 +14,25 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-      - name: Clone Gitee Repository  # 仅执行克隆操作
+      - name: Clone and Sync Once
         env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}  # 需在GitHub仓库设置中配置
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_REPO: "https://gitee.com/bmg369/test.git"
           GITEE_BRANCH: "master"
         run: |
-          git clone --depth 1 -b $GITEE_BRANCH https://oauth2:${GITEE_TOKEN}@${GITEE_REPO#https://}
-          echo "仓库已克隆到test目录"  # 操作完成提示
+          # 克隆Gitee仓库
+          git clone --depth 1 -b $GITEE_BRANCH https://oauth2:${GITEE_TOKEN}@${GITEE_REPO#https://} test
+          
+          # 检查是否已存在同步标记文件
+          if [ -f test/.sync-complete ]; then
+            echo "已检测到同步完成标志，跳过后续操作"
+            exit 0
+          fi
+          
+          # 创建同步标记文件并提交
+          cd test
+          touch .sync-complete
+          git add .sync-complete
+          git commit -m "完成首次同步"
+          git push origin $GITEE_BRANCH
+          echo "Gitee仓库已同步，后续触发将跳过同步操作"
