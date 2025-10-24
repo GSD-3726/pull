@@ -4,41 +4,38 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'github actions'
+        description: '自定义标签名（留空则自动生成）'
         required: false
         default: ''
 
 env:
-  GITEE_REPO: "${{ secrets.GITEE_USERNAME }}"  # 带引号的正确写法
+  GITEE_REPO: "${{ secrets.GITEE_USERNAME }}/${{ secrets.GITEE_REPO_NAME }}"  # 修正仓库路径
 
 jobs:
   trigger-gitee-pipeline:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ github.token }}  # 修复：添加 token 参数
+          token: ${{ github.token }}
 
-      - name: Setup Git configuration
+      - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Generate tag name
+      - name: Generate Tag Name
         id: tag_name
         run: |
-          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            echo "TAG_NAME=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
-          else
-            echo "TAG_NAME=trigger-pipeline-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          TAG_NAME="${{ github.event.inputs.tag_name }}"
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME="trigger-pipeline-$(date +%Y%m%d-%H%M%S)"
           fi
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_OUTPUT
 
-      - name: Create and push lightweight tag to Gitee
+      - name: Create & Push Annotated Tag
         run: |
-          TAG_NAME="${{ steps.tag_name.outputs.TAG_NAME }}"
-          git tag $TAG_NAME
-          git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ env.GITEE_REPO }}.git $TAG_NAME
-          echo "✅ 成功创建并推送标签 '$TAG_NAME' 到 Gitee"
+          git tag -a ${{ steps.tag_name.outputs.TAG_NAME }} -m "Auto-tag from GitHub Actions"
+          git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ env.GITEE_REPO }}.git ${{ steps.tag_name.outputs.TAG_NAME }}
