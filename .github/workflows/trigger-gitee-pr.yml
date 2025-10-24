@@ -1,7 +1,6 @@
 name: Trigger Gitee Pipeline via Branch Push
-
 on:
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   trigger-gitee-pipeline:
@@ -10,23 +9,34 @@ jobs:
       - name: Checkout GitHub code (Full History)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史记录，避免后续推送问题:cite[1]
+          fetch-depth: 0
 
       - name: Configure Git
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add Gitee remote
+      - name: Verify Gitee token and repo (fail fast with clear message)
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
         run: |
-          git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
+          echo "Checking Gitee token..."
+          curl -fsS "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}" || { echo "ERROR: GITEE_TOKEN invalid or network issue"; exit 1; }
+          echo "Checking repo exists and token has access..."
+          curl -fsS "https://gitee.com/api/v5/repos/${GITEE_REPO}?access_token=${GITEE_TOKEN}" || { echo "ERROR: repo not found or no access (check GITEE_REPO=owner/repo)"; exit 1; }
 
-      - name: Create and push to trigger branch
+      - name: Add Gitee remote (using http.extraHeader to avoid URL-encoding issues)
+        env:
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
         run: |
-          # 定义一个专门用于触发的分支名称
-          TRIGGER_BRANCH="trigger/pipeline-20251024"
-          # 切换到该分支（基于当前检出的commit）
-          git checkout -b $TRIGGER_BRANCH
-          # 推送到Gitee仓库的指定分支
-          git push gitee $TRIGGER_BRANCH
-          echo "已推送代码至Gitee的 $TRIGGER_BRANCH 分支，流水线应被触发。"
+          # 确保 GITEE_REPO 是 owner/repo
+          OWNER_REPO="${GITEE_REPO}"
+          REMOTE_URL="https://gitee.com/${OWNER_REPO}.git"
+          git remote add gitee "${REMOTE_URL}"
+          # 使用 Basic auth header（base64 编码 user:token）
+          AUTH=$(printf "%s:%s" "${GITEE_USERNAME}" "${GITEE_TOKEN}" | base64 -w0)
+          git -c http.extraHeader="Authorization: Basic ${AUTH}" push gitee HEAD:trigger/pipeline-20251024 || { echo "Push failed"; git remote -v; exit 1; }
+          echo "已推送至 gitee (${REMOTE_URL}) 分支 trigger/pipeline-20251024"
