@@ -1,41 +1,32 @@
-name: Trigger Gitee Pipeline
+name: Sync Tag to Gitee
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: '自定义标签名（留空则自动生成）'
-        required: false
-        default: ''
-
-env:
-  GITEE_REPO: "${{ secrets.GITEE_USERNAME }}/${{ secrets.GITEE_REPO_NAME }}"  # 修正仓库路径
+  push:
+    tags:
+      - '**'  # 监听所有 tag 推送事件
 
 jobs:
-  trigger-gitee-pipeline:
+  sync-tag:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          token: ${{ github.token }}
+          fetch-depth: 0  # 获取所有历史记录和标签
 
-      - name: Configure Git
+      - name: Configure Git and Sync
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 设置 Git 用户信息
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
 
-      - name: Generate Tag Name
-        id: tag_name
-        run: |
-          TAG_NAME="${{ github.event.inputs.tag_name }}"
-          if [ -z "$TAG_NAME" ]; then
-            TAG_NAME="trigger-pipeline-$(date +%Y%m%d-%H%M%S)"
-          fi
-          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_OUTPUT
-
-      - name: Create & Push Annotated Tag
-        run: |
-          git tag -a ${{ steps.tag_name.outputs.TAG_NAME }} -m "Auto-tag from GitHub Actions"
-          git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ env.GITEE_REPO }}.git ${{ steps.tag_name.outputs.TAG_NAME }}
+          # 添加 Gitee 远程仓库，使用令牌认证
+          git remote add gitee https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}
+          
+          # 推送代码及标签到 Gitee
+          echo "🔄 开始推送标签到 Gitee..."
+          git push gitee --tags --force
+          echo "✅ 标签推送完成"
