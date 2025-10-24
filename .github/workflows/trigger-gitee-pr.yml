@@ -1,4 +1,4 @@
-name: 触发工作流
+name: Trigger Gitee Pipeline
 
 on:
   workflow_dispatch:
