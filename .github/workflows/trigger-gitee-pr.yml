@@ -3,30 +3,27 @@ name: Sync Tag to Gitee
 on:
   push:
     tags:
-      - '**'  # 监听所有 tag 推送事件
+      - '**'  # 监听所有 tag 推送事件 :cite[8]
 
 jobs:
   sync-tag:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取所有历史记录和标签
+          fetch-depth: 0
 
       - name: Configure Git and Sync
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }} # 格式如: bmg369/test.git
         run: |
-          # 设置 Git 用户信息
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-
-          # 添加 Gitee 远程仓库，使用令牌认证
+          # 添加Gitee远程仓库，使用令牌认证
           git remote add gitee https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}
-          
-          # 推送代码及标签到 Gitee
-          echo "🔄 开始推送标签到 Gitee..."
+          # 推送标签到Gitee
+          echo "🔄 Start pushing tags to Gitee..."
           git push gitee --tags --force
-          echo "✅ 标签推送完成"
+          echo "✅ Tags pushed to Gitee completed"
