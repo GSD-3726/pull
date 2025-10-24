@@ -1,18 +1,15 @@
-name: 触发gitee工作流
+name: 触发工作流
 
 on:
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Github actions 触发'
+        description: 'github actions'
         required: false
         default: ''
-  schedule:
-    # 可选：设置定时触发，例如每天 UTC 时间 8:00（北京时间 16:00）
-    - cron: '0 8 * * *'
 
 env:
-  GITEE_REPO: 'bmg369/test' # 替换为你的 Gitee 仓库路径
+  GITEE_REPO: 'bmg369/test'
 
 jobs:
   trigger-gitee-pipeline:
@@ -22,8 +19,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取完整历史记录
-          token: ${{ secrets.PAT_FOR_CI }} # 使用 PAT 而不是默认的 GITHUB_TOKEN
+          fetch-depth: 0
+          token: ${{ github.token }}  # 修复：添加 token 参数
 
       - name: Setup Git configuration
         run: |
@@ -38,28 +35,10 @@ jobs:
           else
             echo "TAG_NAME=trigger-pipeline-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
           fi
-          echo "Using tag name: $TAG_NAME"
 
       - name: Create and push lightweight tag to Gitee
         run: |
           TAG_NAME="${{ steps.tag_name.outputs.TAG_NAME }}"
-          
-          # 创建轻量级标签
           git tag $TAG_NAME
-          
-          # 推送到 Gitee
           git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ env.GITEE_REPO }}.git $TAG_NAME
-          
-          echo "✅ Successfully created and pushed tag '$TAG_NAME' to Gitee"
-
-      - name: Clean up local tag
-        if: always() # 无论成功失败都执行清理
-        run: |
-          TAG_NAME="${{ steps.tag_name.outputs.TAG_NAME }}"
-          git tag -d $TAG_NAME || echo "Local tag '$TAG_NAME' already deleted or not found"
-
-      - name: Verify Gitee pipeline trigger
-        run: |
-          echo "🎯 Gitee pipeline should now be triggered by tag: ${{ steps.tag_name.outputs.TAG_NAME }}"
-          echo "📋 Check your Gitee Go pipeline status at:"
-          echo "   https://gitee.com/${{ env.GITEE_REPO }}/pipelines"
+          echo "✅ 成功创建并推送标签 '$TAG_NAME' 到 Gitee"
