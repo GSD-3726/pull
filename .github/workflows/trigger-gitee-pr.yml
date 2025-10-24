@@ -9,7 +9,7 @@ on:
         default: ''
 
 env:
-  GITEE_REPO: 'bmg369/test'
+  GITEE_REPO: ${{ secrets.GITEE_USERNAME }}
 
 jobs:
   trigger-gitee-pipeline:
