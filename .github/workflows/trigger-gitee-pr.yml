@@ -1,33 +1,29 @@
-name: 定时触发Gitee流水线
+name: Trigger Gitee Pipeline
+
 on:
+  workflow_dispatch: # 允许手动触发
   schedule:
-    - cron: '0 */2 * * *'  # 每2小时执行一次（UTC时间，需注意时区差）
-  workflow_dispatch:  # 允许手动触发测试
+    # 此处可添加定时触发，例如 UTC 时间每天8点01分（北京时间16:01）运行
+    # - cron: '01 8 * * *'
 
 jobs:
-  trigger-gitee:
+  trigger-via-tag:
     runs-on: ubuntu-latest
     steps:
-      - name: 配置Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: 克隆GitHub仓库
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 拉取完整历史
+          # 使用 Personal Access Token (PAT) 检出代码，这对于后续推送至关重要
+          token: ${{ secrets.PAT_FOR_CI }}
 
-      - name: 推送触发Gitee
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}  # Gitee访问令牌（需提前配置）
-          GITEE_REPO: "https://gitee.com/bmg369/test.git"
+      - name: Create a lightweight tag
         run: |
-          # 添加Gitee远程仓库（使用令牌认证）
-          git remote add gitee https://oauth2:${GITEE_TOKEN}@$(echo $GITEE_REPO | cut -d'/' -f3-)
-          
-          # 创建带有特定标识的空提交（用于Gitee识别来源）
-          git commit --allow-empty -m "[github-trigger] 定时触发Gitee流水线 $(date +%s)"
-          
-          # 推送至Gitee（可推送到特定分支，如main）
-          git push gitee master --force-with-lease
+          # 生成一个基于时间戳的标签名，确保每次基本唯一
+          TAG_NAME="trigger-pipeline-$(date +%s)"
+          git tag $TAG_NAME
+          echo "New tag created: $TAG_NAME"
+
+      - name: Push tag to trigger Gitee
+        run: |
+          # 推送标签到Gitee远程仓库
+          git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO_FULL_PATH }}.git --tags
