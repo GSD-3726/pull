@@ -30,4 +30,4 @@ jobs:
           git commit --allow-empty -m "[github-trigger] 定时触发Gitee流水线 $(date +%s)"
           
           # 推送至Gitee（可推送到特定分支，如main）
-          git push gitee main --force-with-lease
+          git push gitee master --force-with-lease
