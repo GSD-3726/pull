@@ -1,13 +1,13 @@
-name: Trigger Gitee Pipeline via Push
+name: Trigger Gitee Pipeline
 
 on:
-  workflow_dispatch: # 允许手动触发此工作流:cite[1]
+  workflow_dispatch:
 
 jobs:
   trigger-gitee-pipeline:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout GitHub Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Configure Git
@@ -15,9 +15,21 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add Gitee Remote & Push
+      - name: Add Gitee remote
         run: |
           git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
-          # 创建一个空提交并推送到Gitee，以触发流水线
-          git commit --allow-empty -m "Trigger Gitee Pipeline pipeline-20251024 [skip ci]"
-          git push gitee HEAD:master
+
+      - name: Create tag and push
+        run: |
+          TAG_NAME="trigger/pipeline-20251024-$(date +%Y%m%d%H%M%S)"
+          git tag $TAG_NAME
+          git push gitee $TAG_NAME
+          echo "Tag $TAG_NAME pushed to Gitee."
+
+      # 可选：删除标签
+      # 注意：如果流水线运行时间较长，可能需要在删除标签前等待更长时间，或者不删除标签。
+      - name: Delete tag after delay
+        run: |
+          sleep 60
+          git push gitee --delete $TAG_NAME
+          echo "Tag $TAG_NAME deleted from Gitee."
