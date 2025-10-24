@@ -7,8 +7,10 @@ jobs:
   trigger-gitee-pipeline:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout code with full history
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 关键修复：获取完整历史记录，而不是浅克隆
 
       - name: Configure Git
         run: |
@@ -19,17 +21,13 @@ jobs:
         run: |
           git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
 
-      - name: Create tag and push
+      - name: Fetch from Gitee and create tag
         run: |
+          # 从Gitee获取最新信息，确保我们知道远程状态
+          git fetch gitee
+          
+          # 创建唯一的时间戳标签
           TAG_NAME="trigger/pipeline-20251024-$(date +%Y%m%d%H%M%S)"
           git tag $TAG_NAME
           git push gitee $TAG_NAME
           echo "Tag $TAG_NAME pushed to Gitee."
-
-      # 可选：删除标签
-      # 注意：如果流水线运行时间较长，可能需要在删除标签前等待更长时间，或者不删除标签。
-      - name: Delete tag after delay
-        run: |
-          sleep 60
-          git push gitee --delete $TAG_NAME
-          echo "Tag $TAG_NAME deleted from Gitee."
