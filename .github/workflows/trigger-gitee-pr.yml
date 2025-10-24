@@ -1,42 +1,139 @@
-name: Trigger Gitee Pipeline via Branch Push
+name: Trigger Gitee Pipeline (Debug & Push)
+
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  trigger-gitee-pipeline:
+  debug-and-push:
     runs-on: ubuntu-latest
+    env:
+      # 这些从 Secrets 读取
+      GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_REPO: ${{ secrets.GITEE_REPO }}
+      # 可选：用于 SSH 的私钥（如果你想用 SSH 方式）
+      GITEE_SSH_KEY: ${{ secrets.GITEE_SSH_KEY }}
+      TRIGGER_BRANCH: trigger/pipeline-20251024
     steps:
-      - name: Checkout GitHub code (Full History)
+
+      - name: Checkout code (full history)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure Git
+      - name: Configure Git user
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Verify Gitee token and repo (fail fast with clear message)
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+      - name: Debug: show token user info
         run: |
           echo "Checking Gitee token..."
+          # 用 token 获取用户信息（若失败说明 token 无效）
           curl -fsS "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}" || { echo "ERROR: GITEE_TOKEN invalid or network issue"; exit 1; }
-          echo "Checking repo exists and token has access..."
-          curl -fsS "https://gitee.com/api/v5/repos/${GITEE_REPO}?access_token=${GITEE_TOKEN}" || { echo "ERROR: repo not found or no access (check GITEE_REPO=owner/repo)"; exit 1; }
 
-      - name: Add Gitee remote (using http.extraHeader to avoid URL-encoding issues)
-        env:
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+      - name: Debug: list repos for token user (help find correct owner/repo)
         run: |
-          # 确保 GITEE_REPO 是 owner/repo
+          echo "Listing repositories for user ${GITEE_USERNAME} (first 1000 chars shown)..."
+          # 列出仓库以便确认 owner/repo 写法是否正确
+          # 如果运行环境有 jq，会显示 full_name；否则输出原始 JSON 的前几行
+          if command -v jq >/dev/null 2>&1; then
+            curl -fsS "https://gitee.com/api/v5/users/${GITEE_USERNAME}/repos?access_token=${GITEE_TOKEN}" | jq -r '.[].full_name' | sed -n '1,200p'
+          else
+            curl -fsS "https://gitee.com/api/v5/users/${GITEE_USERNAME}/repos?access_token=${GITEE_TOKEN}" | sed -n '1,200p'
+          fi
+
+      - name: Debug: check specified repo exists and token has access
+        run: |
+          echo "Checking repo: ${GITEE_REPO}"
+          if [ -z "${GITEE_REPO}" ]; then
+            echo "ERROR: GITEE_REPO is empty. Set secret GITEE_REPO = owner/repo"
+            exit 1
+          fi
+          # 直接访问 repos API，判断是否存在（200）或 404（不存在/无权限）
+          HTTP_STATUS=$(curl -o /tmp/repo_resp.json -s -w "%{http_code}" "https://gitee.com/api/v5/repos/${GITEE_REPO}?access_token=${GITEE_TOKEN}")
+          echo "HTTP status: ${HTTP_STATUS}"
+          if [ "${HTTP_STATUS}" = "200" ]; then
+            echo "Repo exists and token can access it."
+            head -c 800 /tmp/repo_resp.json || true
+            echo
+          else
+            echo "ERROR: repo not found or token has no access (HTTP ${HTTP_STATUS})."
+            echo "Check that GITEE_REPO is 'owner/repo' and that token user has access to that repo."
+            cat /tmp/repo_resp.json || true
+            exit 1
+          fi
+
+      - name: Create trigger branch locally (based on current HEAD)
+        run: |
+          # 如果分支已存在于本地，会失败；我们先尝试删除同名本地分支再创建
+          set -e
+          if git rev-parse --verify "${TRIGGER_BRANCH}" >/dev/null 2>&1; then
+            git branch -D "${TRIGGER_BRANCH}"
+          fi
+          git checkout -b "${TRIGGER_BRANCH}"
+          echo "Created local branch ${TRIGGER_BRANCH} from current HEAD"
+          git log -1 --oneline
+
+      - name: Push to Gitee via HTTPS (Authorization header - recommended)
+        continue-on-error: true
+        run: |
+          echo "Attempting HTTPS push to Gitee using Authorization header (avoids URL encoding problems)..."
           OWNER_REPO="${GITEE_REPO}"
           REMOTE_URL="https://gitee.com/${OWNER_REPO}.git"
+          git remote remove gitee || true
           git remote add gitee "${REMOTE_URL}"
-          # 使用 Basic auth header（base64 编码 user:token）
+          # 生成 base64(user:token) 以设置 Authorization header
           AUTH=$(printf "%s:%s" "${GITEE_USERNAME}" "${GITEE_TOKEN}" | base64 -w0)
-          git -c http.extraHeader="Authorization: Basic ${AUTH}" push gitee HEAD:trigger/pipeline-20251024 || { echo "Push failed"; git remote -v; exit 1; }
-          echo "已推送至 gitee (${REMOTE_URL}) 分支 trigger/pipeline-20251024"
+          # 使用 http.extraHeader 来临时为该 push 添加 Authorization（不会写入全局配置）
+          if git -c http.extraHeader="Authorization: Basic ${AUTH}" push gitee HEAD:${TRIGGER_BRANCH}; then
+            echo "HTTPS push succeeded."
+            exit 0
+          else
+            echo "HTTPS push failed. Will try to capture remote info and fall back to SSH if possible."
+            echo "git remote -v:"
+            git remote -v || true
+            git ls-remote --heads gitee || true
+            exit 2
+          fi
+
+      - name: Fallback: Attempt SSH push if HTTPS failed and SSH key provided
+        if: failure() && env.GITEE_SSH_KEY != ''
+        run: |
+          echo "HTTPS push failed; attempting SSH push using provided GITEE_SSH_KEY..."
+          set -e
+          # 写入私钥
+          mkdir -p ~/.ssh
+          echo "${GITEE_SSH_KEY}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # 添加 gitee host key（安全：可用你们自建域名替换 gitee.com）
+          ssh-keyscan -t rsa gitee.com >> ~/.ssh/known_hosts || true
+          # 启动 ssh-agent 并添加 key
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+          # 使用 SSH remote URL
+          SSH_REMOTE="git@gitee.com:${GITEE_REPO}.git"
+          git remote remove gitee || true
+          git remote add gitee "${SSH_REMOTE}"
+          echo "SSH remote set to ${SSH_REMOTE}"
+          # 推送
+          git push gitee HEAD:${TRIGGER_BRANCH} || ( echo "SSH push failed"; git remote -v; exit 1 )
+          echo "SSH push succeeded."
+
+      - name: Final status
+        if: success()
+        run: |
+          echo "流程结束：已尝试推送到 Gitee。若失败，请检查上面的错误信息并按建议修复 secrets / 权限 / owner/repo 写法。"
+
+      - name: Final failure note
+        if: failure()
+        run: |
+          echo "最终：所有推送尝试失败。请检查："
+          echo "  - Secrets 是否正确（GITEE_REPO 格式：owner/repo）"
+          echo "  - Token 是否有仓库写权限（私有仓库需要明确写权限）"
+          echo "  - GITEE_USERNAME 是否与 token 对应的用户一致"
+          echo "  - 是否需要使用私钥（将 GITEE_SSH_KEY 放到 Secrets）"
+          exit 1
