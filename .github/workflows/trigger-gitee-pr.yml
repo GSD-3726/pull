@@ -1,29 +1,65 @@
-name: Trigger Gitee Pipeline
+name: 触发gitee工作流
 
 on:
   workflow_dispatch: # 允许手动触发
+    inputs:
+      tag_name:
+        description: 'Github actions 触发'
+        required: false
+        default: ''
   schedule:
-    # 此处可添加定时触发，例如 UTC 时间每天8点01分（北京时间16:01）运行
-    # - cron: '01 8 * * *'
+    # 可选：设置定时触发，例如每天 UTC 时间 8:00（北京时间 16:00）
+    - cron: '0 8 * * *'
+
+env:
+  GITEE_REPO: 'bmg369/test' # 替换为你的 Gitee 仓库路径
 
 jobs:
-  trigger-via-tag:
+  trigger-gitee-pipeline:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # 使用 Personal Access Token (PAT) 检出代码，这对于后续推送至关重要
-          token: ${{ secrets.PAT_FOR_CI }}
+          fetch-depth: 0 # 获取完整历史记录
+          token: ${{ secrets.PAT_FOR_CI }} # 使用 PAT 而不是默认的 GITHUB_TOKEN
 
-      - name: Create a lightweight tag
+      - name: Setup Git configuration
         run: |
-          # 生成一个基于时间戳的标签名，确保每次基本唯一
-          TAG_NAME="trigger-pipeline-$(date +%s)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate tag name
+        id: tag_name
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            echo "TAG_NAME=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG_NAME=trigger-pipeline-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          fi
+          echo "Using tag name: $TAG_NAME"
+
+      - name: Create and push lightweight tag to Gitee
+        run: |
+          TAG_NAME="${{ steps.tag_name.outputs.TAG_NAME }}"
+          
+          # 创建轻量级标签
           git tag $TAG_NAME
-          echo "New tag created: $TAG_NAME"
+          
+          # 推送到 Gitee
+          git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ env.GITEE_REPO }}.git $TAG_NAME
+          
+          echo "✅ Successfully created and pushed tag '$TAG_NAME' to Gitee"
 
-      - name: Push tag to trigger Gitee
+      - name: Clean up local tag
+        if: always() # 无论成功失败都执行清理
         run: |
-          # 推送标签到Gitee远程仓库
-          git push https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO_FULL_PATH }}.git --tags
+          TAG_NAME="${{ steps.tag_name.outputs.TAG_NAME }}"
+          git tag -d $TAG_NAME || echo "Local tag '$TAG_NAME' already deleted or not found"
+
+      - name: Verify Gitee pipeline trigger
+        run: |
+          echo "🎯 Gitee pipeline should now be triggered by tag: ${{ steps.tag_name.outputs.TAG_NAME }}"
+          echo "📋 Check your Gitee Go pipeline status at:"
+          echo "   https://gitee.com/${{ env.GITEE_REPO }}/pipelines"
