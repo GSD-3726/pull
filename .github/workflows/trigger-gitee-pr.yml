@@ -9,7 +9,7 @@ on:
         default: ''
 
 env:
-  GITEE_REPO: ${{ secrets.GITEE_USERNAME }}
+  GITEE_REPO: "${{ secrets.GITEE_USERNAME }}"  # 带引号的正确写法
 
 jobs:
   trigger-gitee-pipeline:
