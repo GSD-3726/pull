@@ -1,16 +1,16 @@
-name: Trigger Gitee Pipeline
+name: Trigger Gitee Pipeline via Branch Push
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动触发
 
 jobs:
   trigger-gitee-pipeline:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code with full history
+      - name: Checkout GitHub code (Full History)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 关键修复：获取完整历史记录，而不是浅克隆
+          fetch-depth: 0  # 获取完整历史记录，避免后续推送问题:cite[1]
 
       - name: Configure Git
         run: |
@@ -21,13 +21,12 @@ jobs:
         run: |
           git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
 
-      - name: Fetch from Gitee and create tag
+      - name: Create and push to trigger branch
         run: |
-          # 从Gitee获取最新信息，确保我们知道远程状态
-          git fetch gitee
-          
-          # 创建唯一的时间戳标签
-          TAG_NAME="trigger/pipeline-20251024-$(date +%Y%m%d%H%M%S)"
-          git tag $TAG_NAME
-          git push gitee $TAG_NAME
-          echo "Tag $TAG_NAME pushed to Gitee."
+          # 定义一个专门用于触发的分支名称
+          TRIGGER_BRANCH="trigger/pipeline-20251024"
+          # 切换到该分支（基于当前检出的commit）
+          git checkout -b $TRIGGER_BRANCH
+          # 推送到Gitee仓库的指定分支
+          git push gitee $TRIGGER_BRANCH
+          echo "已推送代码至Gitee的 $TRIGGER_BRANCH 分支，流水线应被触发。"
