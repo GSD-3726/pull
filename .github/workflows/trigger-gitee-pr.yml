@@ -1,43 +1,33 @@
-      - name: Sync to Gitee & Trigger Pipeline
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: "gitee.com/bmg369/test.git"
-          GITEE_BRANCH: "master"
+name: 定时触发Gitee流水线
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # 每2小时执行一次（UTC时间，需注意时区差）
+  workflow_dispatch:  # 允许手动触发测试
+
+jobs:
+  trigger-gitee:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 配置Git
         run: |
-          # 确保 token 不为空
-          if [ -z "$GITEE_TOKEN" ]; then
-            echo "ERROR: GITEE_TOKEN is empty. 请在 GitHub Secrets 添加 secrets.GITEE_TOKEN"
-            exit 1
-          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 计算 Basic Auth (base64 of "oauth2:token")，用 printf 防止某些 shell 行为问题
-          AUTH_B64=$(printf 'oauth2:%s' "$GITEE_TOKEN" | base64)
+      - name: 克隆GitHub仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 拉取完整历史
 
-          # 使用 http.extraheader 来传递认证信息，避免在 URL 中直接包含特殊字符
-          git -c http.extraheader="Authorization: Basic ${AUTH_B64}" clone --depth 1 -b "$GITEE_BRANCH" "https://gitee.com/bmg369/test.git" gitee-repo
-          cd gitee-repo
-
-          # 检查并写入时间戳文件（避免无用提交）
-          TIMESTAMP_CONTENT="Last sync at: $(date +'%Y-%m-%d %H:%M:%S')"
-          CURRENT_CONTENT=$(cat .sync-timestamp 2>/dev/null || echo "")
-
-          if [ "$CURRENT_CONTENT" = "$TIMESTAMP_CONTENT" ]; then
-            echo "没有新的变更，跳过同步"
-            exit 0
-          fi
-
-          echo "$TIMESTAMP_CONTENT" > .sync-timestamp
-          git add .sync-timestamp
-
-          if git diff --staged --quiet; then
-            echo "没有变更需要提交"
-            exit 0
-          fi
-
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git commit -m "Auto sync from GitHub Actions (trigger pipeline) - $(date +'%Y%m%d%H%M%S') [skip ci]"
-
-          # push 时也用 http.extraheader 来传认证
-          git -c http.extraheader="Authorization: Basic ${AUTH_B64}" push "https://gitee.com/bmg369/test.git" "HEAD:$GITEE_BRANCH"
-          echo "同步完成，已触发 Gitee 流水线（如果 Gitee 配置为 push 触发）"
+      - name: 推送触发Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}  # Gitee访问令牌（需提前配置）
+          GITEE_REPO: "https://gitee.com/bmg369/test.git"
+        run: |
+          # 添加Gitee远程仓库（使用令牌认证）
+          git remote add gitee https://oauth2:${GITEE_TOKEN}@$(echo $GITEE_REPO | cut -d'/' -f3-)
+          
+          # 创建带有特定标识的空提交（用于Gitee识别来源）
+          git commit --allow-empty -m "[github-trigger] 定时触发Gitee流水线 $(date +%s)"
+          
+          # 推送至Gitee（可推送到特定分支，如main）
+          git push gitee main --force-with-lease
