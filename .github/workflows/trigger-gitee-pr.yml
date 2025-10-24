@@ -1,29 +1,29 @@
-name: Sync Tag to Gitee
+name: Manual Trigger for Gitee
 
 on:
-  push:
-    tags:
-      - '**'  # 监听所有 tag 推送事件 :cite[8]
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      version:
+        description: '版本号 (如 v1.0.0)'
+        required: true
 
 jobs:
-  sync-tag:
+  trigger-gitee:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git and Sync
+      - name: Trigger Gitee Pipeline
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: ${{ secrets.GITEE_REPO }} # 格式如: bmg369/test.git
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 添加Gitee远程仓库，使用令牌认证
-          git remote add gitee https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}
-          # 推送标签到Gitee
-          echo "🔄 Start pushing tags to Gitee..."
-          git push gitee --tags --force
-          echo "✅ Tags pushed to Gitee completed"
+          VERSION="${{ github.event.inputs.version }}"
+          echo "Triggering Gitee pipeline for version: $VERSION"
+          
+          # 调用 Gitee API 触发指定流水线
+          curl -X POST \
+            -H "Authorization: token ${GITEE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"ref": "refs/tags/'"$VERSION"'", 
+                 "user_name": "GitHub Action",
+                 "pipeline_name": "android720p"}' \
+            https://gitee.com/api/v5/repos/${GITEE_REPO}/pipelines
